@@ -63,7 +63,46 @@ This is especially important for long prompts where critical information may be 
 
 ## Stage 2: STRUCTURE
 
-Choose and apply the right techniques for this task type.
+Choose and apply the right techniques for this task type. Use the matrix below to select, then read the Technique Library entries for details on how to apply each one.
+
+### Technique Selection Matrix
+
+Consult this matrix after classifying the task in Stage 1. **S** = strong fit (use by default), **A** = good fit (use when needed), **B** = situational, **—** = not applicable, **X** = avoid.
+
+| Technique | Factual QA | Reasoning / Math | Code Gen | Creative Writing | Data Extraction | Analysis / Comparison | Planning / Strategy | Summarization | Document Comprehension | Instruction Following | High-Stakes | Ambiguous |
+|-----------|-----------|-----------------|----------|-----------------|----------------|----------------------|--------------------|--------------|-----------------------|----------------------|-------------|-----------|
+| T1: Self-Grounding | S | B | B | B | — | A | A | — | A | — | A | A |
+| T2: Decomposition | — | S | S | — | B | A | S | — | B | B | A | A |
+| T3: Contrast Pairs | A | A | S | S | S | A | B | B | — | S | A | A |
+| T4: Metacognitive Reflection | A | A | B | B | — | S | S | — | A | — | S | S |
+| T5: Pre-Mortem | — | B | S | — | — | B | S | — | — | B | S | A |
+| T6: Multiple Perspectives | B | A | A | B | — | S | S | — | — | — | A | A |
+| T7: Quote-Then-Answer | — | — | — | — | — | — | — | A | S | — | A | — |
+| T8: Structured Thinking | B | B | B | — | A | S | A | B | B | A | A | A |
+| T9: Bookending | — | — | B | — | B | — | — | — | S | S | S | B |
+| T10: Internal Review | B | A | A | S | B | A | A | A | B | A | S | B |
+| T11: Output Shaping | B | — | — | A | — | B | B | S | B | S | B | — |
+| T12: Iterative Narrowing | B | B | A | A | — | S | S | B | — | — | A | S |
+| T13: Constitutional Principles | B | — | A | B | — | B | B | — | — | A | S | B |
+| Multi-Pass (Stage 1c) | B | A | A | B | A | A | A | A | S | S | S | S |
+
+**Reading the matrix**: For a Code Generation task, scan the "Code Gen" column. T2 (Decomposition), T3 (Contrast Pairs), and T5 (Pre-Mortem) are all **S** — use them by default. T6 and T10 are **A** — add them when the task is non-trivial. Skip anything marked **—**.
+
+**Multiple task types**: If a prompt matches multiple types (e.g., High-Stakes + Code Gen), use the higher rating from either column for each technique.
+
+### What to Avoid Per Task Type
+
+| Task Type | Avoid | Why |
+|-----------|-------|-----|
+| Factual QA | Expert personas, emotional framing | Personas reduce accuracy. Emotional framing has no effect. |
+| Reasoning / Math | Explicit CoT on reasoning models | Only +2-3% gain at 20-80% time cost. These models reason internally. |
+| Code Generation | Monolithic single-prompt output, vague specs | Large outputs have more inconsistencies. Vague specs produce inconsistent error handling. |
+| Creative Writing | Negative constraints alone, no style spec | "Don't use cliches" fails. Describe the positive style attributes you want. Without guidance, output converges on generic AI voice. |
+| Analysis / Comparison | Single-pass narrative | Unstructured narrative skips balanced analysis. Force tabular/structured thinking. |
+| High-Stakes | Single-turn self-critique, trusting self-assessed confidence | Single-turn review barely improves error rates. LLMs are systematically overconfident. |
+| Ambiguous | Immediate execution | Ambiguous tasks need restatement or clarification first. Executing immediately risks producing the wrong output entirely. |
+
+---
 
 ### Technique Library
 
