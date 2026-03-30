@@ -60,8 +60,6 @@
   - [6.10 Iterative Narrowing](#610-iterative-narrowing)
   - [6.11 Structured Output as a Thinking Aid](#611-structured-output-as-a-thinking-aid)
   - [6.12 Context Window Management](#612-context-window-management)
-  - [6.13 Calibration Prompts](#613-calibration-prompts)
-  - [6.14 Emotional / Motivational Framing](#614-emotional--motivational-framing)
 - [7. Derived Practical Techniques](#7-derived-practical-techniques)
   - [7.1 Lightweight Self-Consistency](#71-lightweight-self-consistency)
   - [7.2 Informal Tree of Thoughts](#72-informal-tree-of-thoughts)
@@ -88,19 +86,21 @@ Is the task simple and well-defined?
     ├── Multi-step reasoning/math
     │   ├── Using a reasoning model (o3, o4, Gemini 2.5)? → Direct prompting, skip CoT
     │   ├── Need arithmetic accuracy? → PAL/PoT — generate code (Section 4.2)
-    │   └── Need highest accuracy? → Self-consistency (Section 1.4)
-    ├── Needs external knowledge → RAG (Section 2.3)
+    │   └── Need highest accuracy? → Lightweight self-consistency (Section 7.1)
+    ├── Needs external knowledge → RAG (Section 2.3) or everyday RAG (Section 7.3)
     ├── Needs tool/API use → ReAct pattern (Section 2.2) + tool descriptions (Section 4.7)
     ├── Multi-stage pipeline → Prompt chaining (Section 2.7)
-    ├── Search/planning problem → Tree of Thoughts (Section 2.1)
+    ├── Search/planning problem → Informal ToT (Section 7.2)
     ├── High-stakes output → Self-critique + verification (Section 2.4)
     └── Production optimization → DSPy/MIPRO (Section 2.6)
 
 For ALL prompts, also consider:
+• Multi-pass: have model comprehend before acting (Section 6.1)
 • Format: XML tags for Claude, test per model (Section 1.6)
+• Contrast pairs: show good + bad examples (Section 6.4)
+• Structure: data at top, query at bottom for long contexts (Section 4.6)
 • Safety: defense-in-depth if processing untrusted input (Section 3.1)
 • Evaluation: 20-50 test cases before deploying (Section 3.6)
-• Structure: data at top, query at bottom for long contexts (Section 4.6)
 ```
 
 ---
@@ -109,10 +109,10 @@ For ALL prompts, also consider:
 
 ### 1.1 Zero-Shot Prompting
 
-**Definition**: Providing only an instruction with no demonstrations or examples.
+**Definition**: Providing only an instruction with no demonstrations or examples. This is the baseline — every prompt starts here.
 
 **Key Findings**:
-- GPT-3 175B zero-shot on TriviaQA: 64.3% vs 71.2% few-shot. The gap grows with model capacity — larger models benefit more from demonstrations ([Brown et al. 2020](https://arxiv.org/abs/2005.14165)).
+- The gap between zero-shot and few-shot performance grows with model capacity, though modern frontier models have substantially narrowed this gap compared to GPT-3 era benchmarks ([Brown et al. 2020](https://arxiv.org/abs/2005.14165)).
 - With improved prompt structure, zero-shot can outperform few-shot in some scenarios ([PMC Empirical Evaluation](https://pmc.ncbi.nlm.nih.gov/articles/PMC11036183/)).
 - Performance is highly sensitive to phrasing ([Promptingguide.ai](https://www.promptingguide.ai/techniques/zeroshot)).
 
@@ -133,7 +133,7 @@ For ALL prompts, also consider:
 
 **Key Findings**:
 
-**Optimal Example Count**: 3-5 examples is optimal. Diminishing returns beyond that, with risk of over-prompting and accuracy collapse at higher counts ([PromptHub](https://www.prompthub.us/blog/the-few-shot-prompting-guide), [Brown et al. 2020](https://arxiv.org/abs/2005.14165)).
+**Optimal Example Count**: 3-5 examples is optimal. Diminishing returns beyond that, with risk of over-prompting and accuracy collapse at higher counts ([PromptHub](https://www.prompthub.us/blog/the-few-shot-prompting-guide), [Brown et al. 2020](https://arxiv.org/abs/2005.14165)). *Note: Specific accuracy numbers below are from 2020-2022 era models but the underlying principles (ordering effects, label balance, selection strategies) remain validated on current models.*
 
 **What Actually Matters in Examples** (landmark finding): Min et al. (2022) discovered that randomly replacing labels in demonstrations barely hurts performance across 12 models. What matters is: (1) the label space — showing what labels exist, (2) the distribution of input text, and (3) the overall format. Correct input-label pairings are far less important than these structural factors ([Min et al. 2022](https://arxiv.org/abs/2202.12837)).
 
@@ -181,30 +181,15 @@ For ALL prompts, also consider:
 
 ### 1.4 Self-Consistency
 
-**Definition**: Sample multiple diverse reasoning paths at high temperature, then select the most frequent final answer via majority voting.
+**Definition**: Sample multiple diverse reasoning paths at high temperature, then select the most frequent final answer via majority voting ([Wang et al. 2022](https://arxiv.org/abs/2203.11171)).
 
-**Key Results** (Wang et al. 2022): Accuracy improvements over standard CoT:
+**Key Results**: +17.9% on GSM8K, +12.2% on AQuA, +11.0% on SVAMP over standard CoT. Use temperature 0.7+ for path diversity; 5-10 samples for cost-sensitive use, up to 40 for maximum accuracy.
 
-| Benchmark | Improvement |
-|-----------|------------|
-| GSM8K | +17.9% |
-| AQuA | +12.2% |
-| SVAMP | +11.0% |
-| StrategyQA | +6.4% |
-| ARC-challenge | +3.9% |
+**Important Caveat**: The Prompt Report (survey of 1,500+ papers) found self-consistency **underperformed expectations** relative to its research popularity. Few-shot CoT alone was more consistently effective. Additionally, modern reasoning models (o3, o4, Gemini 2.5) already explore multiple reasoning paths internally, reducing the marginal value of explicit self-consistency.
 
-([Wang et al. 2022](https://arxiv.org/abs/2203.11171))
+**Practical Recommendation**: The formal "sample 40 paths" approach is largely superseded for everyday use. See Section 7.1 for the lightweight version ("give me 3 approaches, pick the best") which captures the core benefit at far lower cost. Reserve formal self-consistency for high-stakes verifiable tasks (math competitions, critical code logic) where the cost is justified.
 
-**Temperature**: Use 0.7 or higher for diverse reasoning paths. The key insight: different valid reasoning paths converge on the correct answer.
-
-**Sample Count**: 5-10 samples for cost-sensitive applications; up to 40 for maximum accuracy. Diminishing returns beyond moderate counts.
-
-**Cost-Efficient Variants**:
-- **ASC** (Aggarwal et al. 2023): Samples one-by-one, stops when confidence criteria met — 2-4x cost reduction ([Aggarwal et al. 2023](https://aclanthology.org/2023.emnlp-main.761.pdf)).
-- **ESC** (Li et al. 2023): Small-window detection — stops when answers within a window are identical.
-- **Difficulty-adaptive**: Spend more samples on harder questions ([arXiv](https://arxiv.org/html/2408.13457v2)).
-
-**Limitations**: Linear cost increase. Best for verifiable single-answer tasks (math, coding, factual QA). Less useful for open-ended generation where "majority vote" is ill-defined.
+**Limitations**: Linear cost increase (N samples = N× inference cost). Only works for verifiable single-answer tasks where majority voting is well-defined.
 
 ---
 
@@ -266,26 +251,13 @@ For ALL prompts, also consider:
 
 ### 2.1 Tree of Thoughts (ToT)
 
-**Definition**: Extends CoT by exploring multiple reasoning paths simultaneously through a tree structure with evaluation and search.
+**Definition**: Extends CoT by exploring multiple reasoning paths through a tree structure with evaluation and search ([Yao et al., NeurIPS 2023](https://arxiv.org/abs/2305.10601)).
 
-**Mechanism**: (1) Thought decomposition into intermediate steps, (2) Multiple candidate generation at each step, (3) LM-based state evaluation (value or vote), (4) BFS or DFS search with pruning ([Yao et al., NeurIPS 2023](https://arxiv.org/abs/2305.10601)).
+**Key Results**: Game of 24: CoT 4.0% → ToT 74% (GPT-4). Crossword: <16% → 60%. Dramatic gains on search/planning problems.
 
-**Key Results (GPT-4)**:
+**Why This Is Mostly Academic**: The formal ToT requires 10-100x+ API cost per problem (each tree node needs LM calls for generation AND evaluation). It is impractical for everyday use and inefficient for standard NLP tasks where current models already perform well.
 
-| Task | CoT | ToT | Improvement |
-|------|-----|-----|-------------|
-| Game of 24 | 4.0% | 74% (BFS, b=5) | +70 pts |
-| Crossword (word-level) | <16% | 60% (DFS) | +44 pts |
-
-Even at minimal breadth (b=1), ToT achieves 45% on Game of 24 — demonstrating that thought decomposition + evaluation alone provide substantial benefit. GPT-3.5 + ToT only reached 19%, indicating thought generation quality is a bottleneck.
-
-**BFS vs DFS**:
-- **BFS**: Best for problems where partial solutions can be evaluated for feasibility (Game of 24).
-- **DFS**: Best for problems requiring deep exploration with backtracking (crosswords).
-
-**Limitations**: 10-100x+ API cost per problem. Inefficient for standard NLP tasks where GPT-4 already performs well. Requires careful design of decomposition granularity and evaluation criteria per task.
-
-**Practical Guidelines**: Use only for tasks requiring genuine planning/search (math puzzles, constraint satisfaction, strategic reasoning). A simplified "consider 3 approaches, evaluate each, proceed with the best" prompt captures some benefit at far lower cost.
+**What To Use Instead**: The informal version (Section 7.2) captures the core insight — multiple perspectives + evaluation + self-correction — in a single prompt at normal cost. Reserve formal ToT only for programmatic systems solving constraint satisfaction or planning problems where systematic search is essential.
 
 ---
 
@@ -485,13 +457,13 @@ What evidence would contradict your conclusion?
 
 ---
 
-### 3.4 Bias Mitigation
+### 3.4 Bias Mitigation — A Warning
 
-**Prompt-Level Techniques**: Balanced exemplars (equal per class), randomized ordering, explicit debiasing instructions, CoT for exposing hidden assumptions ([Learn Prompting](https://learnprompting.org/docs/reliability/debiasing)).
+**Prompt-based debiasing does not work as advertised.** Research shows improvements are artificially inflated — bias score reductions come from increased evasive "Unknown" responses, not genuine reasoning improvement. Llama2-7B-Chat misclassified >90% of unbiased content as biased. "Debiasing methods appear to reduce bias by avoiding decisions rather than improving reasoning" ([arXiv 2503.09219](https://arxiv.org/html/2503.09219v1)).
 
-**Critical Research Warning**: Prompt-based debiasing has fundamental limitations. Llama2-7B-Chat misclassified >90% of unbiased content as biased. Improvements are artificially inflated — bias score reductions come from increased evasive "Unknown" responses, not genuine reasoning improvement. "Debiasing methods appear to reduce bias by avoiding decisions rather than improving reasoning" ([arXiv 2503.09219](https://arxiv.org/html/2503.09219v1)).
+Common techniques (balanced exemplars, explicit debiasing instructions, "be unbiased") produce misleading metrics that mask evasive behavior rather than genuine improvement ([Learn Prompting](https://learnprompting.org/docs/reliability/debiasing)).
 
-**Most Effective**: Adversarial prompting + RLHF combination. Reflexive prompt engineering (5-component framework: prompt design, system selection, configuration, evaluation, management) ([ACM FAccT 2025](https://dl.acm.org/doi/10.1145/3715275.3732118)).
+**What to do instead**: Use balanced, diverse few-shot examples (Section 1.2). Evaluate for bias with robust frameworks that account for evasive responses. For systematic debiasing, model-level interventions (adversarial training + RLHF) are necessary — prompt-level fixes alone are insufficient ([ACM FAccT 2025](https://dl.acm.org/doi/10.1145/3715275.3732118)).
 
 ---
 
@@ -550,6 +522,10 @@ ask the user before proceeding.
 - Over-prompting on newer models: "CRITICAL: You MUST..." causes Claude 4.5/4.6 to overreact.
 - Applying explicit CoT to reasoning models that already reason internally.
 - "Prompt and Pray" — no systematic testing or evaluation.
+
+**Debunked Techniques** (do not use):
+- **Emotional prompting** ("This is very important to my career"): EmotionPrompt (Li et al. 2023) claimed 8-115% improvements. TMLR replication (Dec 2025) found 1% improvement (p=0.74, not significant). Politeness ("Please" vs "I order you") swings up to 60pp per question but cancels in aggregate — no net benefit. Provide functional context (WHY an instruction exists) instead of emotional appeals ([TMLR](https://openreview.net/pdf?id=bgjR5bM44u), [Mollick 2025](https://arxiv.org/abs/2503.04818)).
+- **Confidence calibration prompts** ("How confident are you? Rate 1-10"): LLMs are systematically overconfident. Asking for confidence does NOT improve output quality — it only provides a noisy, miscalibrated signal. Models saying "80% confidence" may be correct only 50% of the time. Use as a triage tool at most, never as a quality mechanism ([arXiv 2412.14737](https://arxiv.org/pdf/2412.14737), [arXiv 2510.26995](https://arxiv.org/html/2510.26995)).
 
 ---
 
@@ -774,16 +750,15 @@ ask the user before proceeding.
 
 ### 5.3 Key Quantitative Benchmarks
 
+*Benchmarks marked with † are from 2022-2023 era models. The principles they demonstrate remain valid but specific numbers may differ on current frontier models.*
+
 | Metric | Value | Source |
 |--------|-------|--------|
-| Zero-shot CoT on MultiArith | 17.7% → 78.7% | Kojima et al. 2022 |
-| Few-shot ordering variance | Up to 40 pts | Lu et al. 2022 |
-| Self-consistency on GSM8K | +17.9% over CoT | Wang et al. 2022 |
-| ToT on Game of 24 | 4% → 74% | Yao et al. 2023 |
-| Least-to-Most on SCAN | 16% → 99.7% | Zhou et al. 2022 |
-| Plan-and-Solve+ average | +6.3 pts over Zero-shot-CoT | Wang et al. 2023 |
-| PAL on GSM-Hard | +40% over CoT | Gao et al. 2023 |
-| Prompt chaining accuracy | +10-30% over single | Anthropic |
+| **Current (2024-2026)** | | |
+| Prompt repetition ("read twice") | Up to +76 pp accuracy | Google Research 2024 |
+| Metacognitive prompting on domain NLU | +15-26.9% over CoT | Wang & Zhao, NAACL 2024 |
+| Contrastive prompting on GSM8K | 35.9% → 88.8% | Liang et al. 2024 |
+| Tables as thinking aids | +40.29% relative gain | arXiv 2024 |
 | CoVe hallucination reduction | 77% (2.95 → 0.68) | Meta/ACL 2024 |
 | RAG + validation detection | 97% | AWS + NVIDIA |
 | Multi-agent error reduction | 82% (healthcare/legal) | ACL 2025 |
@@ -793,6 +768,16 @@ ask the user before proceeding.
 | Prompt caching savings | 85% latency, 90% cost | AWS |
 | RAG poisoning (5 docs) | 90% manipulation | Lakera 2025 |
 | Instruction hierarchy defense | +63% extraction, +30% jailbreak | OpenAI/ICLR 2025 |
+| EmotionPrompt (replication) | 1% (NOT significant, p=0.74) | TMLR 2025 |
+| Prompt chaining accuracy | +10-30% over single | Anthropic |
+| **Historical (2022-2023) †** | | |
+| Zero-shot CoT on MultiArith † | 17.7% → 78.7% | Kojima et al. 2022 |
+| Few-shot ordering variance † | Up to 40 pts | Lu et al. 2022 |
+| Self-consistency on GSM8K † | +17.9% over CoT | Wang et al. 2022 |
+| ToT on Game of 24 † | 4% → 74% | Yao et al. 2023 |
+| Least-to-Most on SCAN † | 16% → 99.7% | Zhou et al. 2022 |
+| Plan-and-Solve+ average † | +6.3 pts over Zero-shot-CoT | Wang et al. 2023 |
+| PAL on GSM-Hard † | +40% over CoT | Gao et al. 2023 |
 
 ---
 
@@ -1096,46 +1081,6 @@ analysis in a structured table."
 **Simon Willison's Framing**: "Context engineering" over "prompt engineering" — the real skill is "carefully and skillfully constructing the right context," not just the prompt text but everything surrounding it: goals, constraints, examples, tools, memory, and retrieved knowledge ([Willison](https://simonwillison.net/tags/context-engineering/)).
 
 **Sources**: [Anthropic Engineering](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents), [JetBrains 2025](https://blog.jetbrains.com/research/2025/12/efficient-context-management/), [Willison](https://simonwillison.net/tags/context-engineering/)
-
----
-
-### 6.13 Calibration Prompts
-
-**Definition**: Asking the model to rate its confidence or assess the quality of its own output.
-
-**The Core Problem**: LLMs are "systematically overconfident across models, domains, and elicitation strategies." A model saying "80% confidence" may be correct only 50% of the time ([arXiv 2510.26995](https://arxiv.org/html/2510.26995)).
-
-**Key Research** (Yang et al., ETH Zurich, Dec 2024): Verbalized confidence scores are often miscalibrated. The best calibration method achieved ~7% average deviation from empirical accuracy. When models simultaneously reason and verbalize confidence, the reasoning process disrupts confidence calibration ([arXiv 2412.14737](https://arxiv.org/pdf/2412.14737)).
-
-**Does It Improve Output?** Not directly. Asking "how confident are you?" does not cause the model to generate better answers. It provides a noisy signal about reliability that can be used for triage.
-
-**Practical Guidance**: Use confidence elicitation as a triage tool (flag low-confidence outputs for review) rather than a quality improvement mechanism. Don't trust raw confidence numbers without calibration.
-
-```
-Useful: "Rate your confidence 1-10. If below 7, explain
-what additional information would help."
-
-Not useful: "Be confident in your answer."
-(This just makes the model sound more confident, not be more accurate.)
-```
-
----
-
-### 6.14 Emotional / Motivational Framing
-
-**Definition**: Adding emotional or motivational context to prompts ("This is very important," "Please," "Take your time").
-
-**The Original Claim** (EmotionPrompt, Li et al. 2023): Appending emotional stimuli ("This is very important to my career") reported 8% improvement on Instruction Induction, 115% on BIG-Bench ([arXiv 2307.11760](https://arxiv.org/abs/2307.11760)).
-
-**The Replication Failure** (TMLR, December 2025): A comprehensive replication found **no significant improvement** — just 1% overall (chi-squared = 0.11, p = 0.74). The maximal positive case (8.7% on Llama 3-8B) was also not statistically significant (p = 0.16) ([TMLR](https://openreview.net/pdf?id=bgjR5bM44u)).
-
-**Mollick et al. on Politeness** (March 2025): Testing "Please" vs "I order you" on GPT-4o found up to 60 percentage point swings per question in either direction, but effects cancelled out in aggregate — no net benefit.
-
-**What Actually Works Instead**: Providing **functional motivation** — explaining WHY an instruction exists. "Your response will be read aloud by a text-to-speech engine, so never use ellipses" works better than "NEVER use ellipses" or "Please don't use ellipses, it's very important." Context about purpose helps models generalize; emotional appeals do not.
-
-**Bottom Line**: Emotional framing does not reliably improve performance. Saying "please" is not harmful but has no robust evidence of helping. Provide functional context instead.
-
-**Sources**: [EmotionPrompt](https://arxiv.org/abs/2307.11760), [TMLR Replication](https://openreview.net/pdf?id=bgjR5bM44u), [Mollick 2025](https://gail.wharton.upenn.edu/research-and-insights/tech-report-prompt-engineering-is-complicated-and-contingent/)
 
 ---
 
