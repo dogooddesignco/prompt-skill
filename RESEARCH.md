@@ -47,7 +47,31 @@
   - [5.2 Compute-Accuracy Tradeoff Table](#52-compute-accuracy-tradeoff-table)
   - [5.3 Key Quantitative Benchmarks](#53-key-quantitative-benchmarks)
   - [5.4 Model-Generation Considerations](#54-model-generation-considerations)
-- [6. Master Source Index](#6-master-source-index)
+- [6. Practical Everyday Techniques](#6-practical-everyday-techniques)
+  - [6.1 Multi-Pass / "Read Twice" Prompting](#61-multi-pass--read-twice-prompting)
+  - [6.2 Internal Review Before Output](#62-internal-review-before-output)
+  - [6.3 Metacognitive Prompts](#63-metacognitive-prompts)
+  - [6.4 Contrast Pairs (Good + Bad Examples)](#64-contrast-pairs-good--bad-examples)
+  - [6.5 Priming and Self-Grounding](#65-priming-and-self-grounding)
+  - [6.6 Instruction Repetition / Bookending](#66-instruction-repetition--bookending)
+  - [6.7 Output Length and Detail Control](#67-output-length-and-detail-control)
+  - [6.8 Rubber Duck / Restatement Verification](#68-rubber-duck--restatement-verification)
+  - [6.9 Preflight and Pre-Mortem Prompts](#69-preflight-and-pre-mortem-prompts)
+  - [6.10 Iterative Narrowing](#610-iterative-narrowing)
+  - [6.11 Structured Output as a Thinking Aid](#611-structured-output-as-a-thinking-aid)
+  - [6.12 Context Window Management](#612-context-window-management)
+  - [6.13 Calibration Prompts](#613-calibration-prompts)
+  - [6.14 Emotional / Motivational Framing](#614-emotional--motivational-framing)
+- [7. Derived Practical Techniques](#7-derived-practical-techniques)
+  - [7.1 Lightweight Self-Consistency](#71-lightweight-self-consistency)
+  - [7.2 Informal Tree of Thoughts](#72-informal-tree-of-thoughts)
+  - [7.3 Everyday RAG Patterns](#73-everyday-rag-patterns)
+  - [7.4 Lightweight Constitutional Prompting](#74-lightweight-constitutional-prompting)
+  - [7.5 Informal Decomposition](#75-informal-decomposition)
+  - [7.6 CoT for Non-Reasoning Tasks](#76-cot-for-non-reasoning-tasks)
+  - [7.7 Prompt Templates and Reusable Patterns](#77-prompt-templates-and-reusable-patterns)
+- [8. Meta-Findings](#8-meta-findings)
+- [9. Master Source Index](#9-master-source-index)
 
 ---
 
@@ -787,7 +811,516 @@ ask the user before proceeding.
 
 ---
 
-## 6. Master Source Index
+## 6. Practical Everyday Techniques
+
+*Practitioner-discovered patterns that bridge the gap between formal research and daily use. These techniques may have less formal academic validation than Sections 1-4, but are widely used and increasingly supported by empirical evidence.*
+
+### 6.1 Multi-Pass / "Read Twice" Prompting
+
+**Definition**: Instructing the model to make a comprehension pass before acting, or literally repeating the prompt content so the model processes it twice.
+
+**Breakthrough Finding** (Google Research, Dec 2024): Simply repeating a prompt — copying and pasting it twice — improves LLM accuracy by up to 76 percentage points on non-reasoning tasks, with zero performance degradation on any test. Tested across 7 models (Gemini 2.0 Flash, GPT-4o, GPT-4o-mini, Claude 3 Haiku, Claude 3.7 Sonnet, DeepSeek V3) on standard benchmarks ([arXiv 2512.14982](https://arxiv.org/html/2512.14982v1)).
+
+**Key Result**: Gemini 2.0 Flash-Lite went from 21.33% to 97.33% on a list-indexing task. Won 47 of 70 benchmark-model combinations with 0 losses (reasoning disabled).
+
+**Why It Works**: By the time the model processes the second copy, every token in it can attend to every token in the first copy. This effectively simulates bidirectional attention within the causal (unidirectional) architecture. The second copy "looks back" at the entire first copy, resolving ambiguities missed in a single pass.
+
+**Practical Variants**:
+- **Literal repetition**: Copy the full prompt twice. Nearly free — repetition only increases work in the parallelizable prefill stage.
+- **Comprehension-first instruction**: "Read this twice: once to understand, then to respond." Achieves a similar effect by framing the instruction.
+- **Summarize-then-act**: "First summarize the key requirements, then execute." Forces a comprehension pass before action.
+
+**Limitations**: With reasoning models, gains become neutral to slightly positive (5 wins, 1 loss, 22 ties). Most effective for non-reasoning models on complex inputs.
+
+**This directly addresses the "lost in the middle" problem** (Liu et al. 2023): the second copy ensures middle content gets processed through the lens of the complete instruction.
+
+**Sources**: [Google Research](https://arxiv.org/html/2512.14982v1), [VentureBeat](https://venturebeat.com/orchestration/this-new-dead-simple-prompt-technique-boosts-accuracy-on-llms-by-up-to-76-on), [PromptLayer](https://blog.promptlayer.com/prompt-repetition-improves-llm-accuracy/)
+
+---
+
+### 6.2 Internal Review Before Output
+
+**Definition**: Asking the model to review and improve its response before presenting it, within a single turn.
+
+**Evidence**: Single-turn self-critique yields modest gains — error correction rates move from 7.88% to 8.36%. Models rarely convert incorrect solutions to correct ones through self-critique alone. However, multi-turn Self-Refine (Madaan et al. 2023) demonstrates 5-40% improvement over direct generation, with an average 20% absolute improvement across 7 tasks ([Self-Refine](https://selfrefine.info/)).
+
+**The Gap**: Single-turn "review before outputting" helps with surface-level issues (formatting, tone, obvious errors) but has limited ability to catch deep reasoning mistakes. For consequential outputs, multi-call critique-revision is meaningfully superior.
+
+**Practical Patterns**:
+```
+Lightweight (single-turn):
+"Before outputting your response, review it internally and
+make any improvements you can."
+
+Medium (structured single-turn):
+"Draft your response, then review it against these criteria:
+[accuracy, completeness, clarity]. Make improvements, then
+output only the final version."
+
+Heavy (multi-turn chain):
+Generate → Critique against specific criteria → Revise
+(separate LLM calls, 2-3 rounds)
+```
+
+**Key Finding**: Diverse critiques matter more than repeated refinements of the same critique. Marginal improvement decreases with more iterations.
+
+**Sources**: [Self-Refine](https://selfrefine.info/), [OpenReview](https://openreview.net/pdf?id=S37hOerQLB), [Learn Prompting](https://learnprompting.org/docs/advanced/self_criticism/introduction)
+
+---
+
+### 6.3 Metacognitive Prompts
+
+**Definition**: Prompts that trigger the model to reflect on its own understanding, assumptions, and confidence before or during answering.
+
+**Formal Research** (Wang & Zhao, NAACL 2024): Metacognitive Prompting (MP) guides LLMs through five stages: (1) comprehend input, (2) form preliminary judgments, (3) critically evaluate those judgments, (4) finalize with explanations, (5) gauge confidence.
+
+**Performance**: Zero-shot: 4.8-6.4% improvement over CoT; 2.8-4.1% over Plan-and-Solve. Domain-specific tasks (legal, biomedical NLU): **15.0-26.9% gains over CoT**. GPT-4 achieved highest performance across all ten NLU benchmarks ([arXiv 2308.05342](https://arxiv.org/html/2308.05342v4)).
+
+**Key Distinction from CoT**: MP focuses on introspective evaluation and deeper comprehension rather than step-by-step logical progression. Particularly effective for interpretation-heavy tasks (legal reasoning, sentiment analysis, nuanced classification) rather than calculation-heavy tasks.
+
+**Practical Lightweight Versions**:
+```
+"What would you need to know to answer this well?"
+"What assumptions are you making?"
+"What are you uncertain about in this response?"
+"What's the strongest counterargument to your answer?"
+"Before answering, identify the key factors that affect this decision."
+```
+
+**Sources**: [NAACL 2024](https://aclanthology.org/2024.naacl-long.106.pdf), [Pragmatic MP (ACL)](https://aclanthology.org/2025.chum-1.7.pdf)
+
+---
+
+### 6.4 Contrast Pairs (Good + Bad Examples)
+
+**Definition**: Showing the model what you DON'T want alongside what you DO want, rather than using negative instructions alone.
+
+**Breakthrough Finding**: Contrastive Prompting (Liang et al. 2024) uses "Let's give a correct and a wrong answer" before the model answers. Zero-shot, no examples needed. GSM8K accuracy improved from 35.9% to 88.8%; AQUA-RAT from 41.3% to 62.2% with GPT-4. Outperformed both zero-shot CoT and few-shot CoT on most arithmetic and commonsense reasoning tasks ([arXiv 2403.08211](https://arxiv.org/html/2403.08211v2)).
+
+**Contrast Pairs in Few-Shot**: Providing both good and bad examples "significantly improved output categorization." During fine-tuning, each additional negative example improves accuracy approximately 10x more than each positive example ([arXiv 2402.11651](https://arxiv.org/html/2402.11651v1)).
+
+**Why Negative Instructions Alone Fail**: Models like InstructGPT show worse performance with negative prompts as they scale. LLMs consistently struggle with negation across benchmarks. The fix: convert "don't uppercase names" to "always lowercase names" — positive reformulation dramatically improves outcomes ([Gadlet](https://gadlet.com/posts/negative-prompting/)).
+
+**Practical Pattern**:
+```
+Here is a BAD example of what I don't want:
+[bad example]
+
+Here is a GOOD example of what I do want:
+[good example]
+
+Now produce output following the good example's pattern.
+```
+
+**Bottom Line**: Show contrast pairs (good + bad together) = highly effective. Say "don't do X" without showing alternatives = unreliable.
+
+**Sources**: [arXiv 2403.08211](https://arxiv.org/html/2403.08211v2), [Gadlet](https://gadlet.com/posts/negative-prompting/), [arXiv 2402.11651](https://arxiv.org/html/2402.11651v1), [Latitude](https://latitude.so/blog/how-examples-improve-llm-style-consistency)
+
+---
+
+### 6.5 Priming and Self-Grounding
+
+**Definition**: Having the model articulate what it knows about a topic before answering the actual question, using its own output as grounding context.
+
+**Mechanism**: When the model outputs a summary of its knowledge, those tokens become part of the context for subsequent generation. This is functionally equivalent to a mini-RAG retrieval of the model's own training data, helping ground the response in relevant information.
+
+**Related Formal Techniques**: Self-Ask (Press et al.) breaks complex questions into sub-questions and answers them sequentially. Document-first prompting places context before queries for more reliable results.
+
+**Practical Patterns**:
+```
+"First, summarize what you know about [topic].
+Then, using that context, answer: [question]"
+
+"What are the key principles of [domain] that are relevant
+to this problem? Now apply those principles to [task]."
+
+"List the relevant facts and constraints before proposing
+a solution."
+```
+
+**Simon Willison's Framing**: "Context engineering is the art and science of filling the context window with just the right information for the next step." Self-grounding is the model doing its own context engineering ([Willison 2025](https://simonwillison.net/2025/jun/27/context-engineering/)).
+
+**Sources**: [Learn Prompting](https://learnprompting.org/docs/advanced/few_shot/self_ask), [Neptune.ai](https://neptune.ai/blog/llm-grounding), [Willison](https://simonwillison.net/2025/jun/27/context-engineering/)
+
+---
+
+### 6.6 Instruction Repetition / Bookending
+
+**Definition**: Restating critical instructions at multiple points in the prompt to combat the "lost in the middle" effect.
+
+**Evidence**: Three converging lines of research validate this:
+
+1. **Lost in the Middle** (Liu et al. 2023): 30%+ performance degradation when relevant info is in the middle vs start/end ([arXiv 2307.03172](https://arxiv.org/abs/2307.03172)).
+2. **Google Prompt Repetition** (Dec 2024): Repeating the entire prompt directly addresses this — 47/70 benchmark wins, 0 losses ([arXiv 2512.14982](https://arxiv.org/html/2512.14982v1)).
+3. **Anthropic Guidance**: "The importance of putting instructions at the end of the prompt — we want Claude's recall of them to be as high as possible" ([Anthropic](https://www.anthropic.com/news/prompting-long-context)).
+
+**Practical Pattern**:
+```
+[Critical constraint stated at top]
+[Long document or context in the middle]
+[Critical constraint restated at bottom, near the query]
+```
+
+**For Long Prompts**: Place documents at top, instructions at bottom. Use XML tags to structure sections. For the most important constraints, state them both in the system prompt AND at the end of the user message.
+
+---
+
+### 6.7 Output Length and Detail Control
+
+**Definition**: Controlling the verbosity and detail level of model outputs.
+
+**What Works**:
+- **"At most X words"**: Outperforms other formats. Models consistently stay under the limit. Exact word counts overshoot by 10-15%.
+- **Structural constraints**: Asking for a specific number of paragraphs or bullet points is more reliable than word counts.
+- **Countdown markers**: A strategy using explicit countdown tokens yields 95%+ compliance vs <30% with naive prompts ([arXiv 2508.13805](https://arxiv.org/html/2508.13805v1)).
+
+**What Doesn't Work Reliably**: "Be concise" and "be thorough" are directional nudges with high variance. Combining them with structural constraints (e.g., "Be concise. Answer in 2-3 bullet points.") is much more reliable.
+
+**Practical Guidelines**:
+- For strict limits: "Respond in at most 100 words."
+- For structure: "Answer in exactly 3 bullet points."
+- For tone: Combine directional + structural: "Be concise. One paragraph, no more than 4 sentences."
+
+**Sources**: [arXiv 2508.13805](https://arxiv.org/html/2508.13805v1), [arXiv 2407.19825](https://arxiv.org/pdf/2407.19825)
+
+---
+
+### 6.8 Rubber Duck / Restatement Verification
+
+**Definition**: Having the model explain its understanding of the task back to you before proceeding.
+
+**Use Case**: Complex or ambiguous tasks where misinterpretation risk is high. The model's restatement reveals misunderstandings before it commits to a full response.
+
+**Practical Patterns**:
+```
+"Before you begin, tell me what you think I'm asking for
+and what approach you plan to take."
+
+"Restate this problem in your own words, then solve it."
+
+"What are the key requirements here? List them, then proceed."
+```
+
+**Evidence**: No formal A/B benchmarks exist comparing "restate then answer" vs "answer directly." This is a widely used practitioner technique that remains empirically under-studied. The principle draws from rubber duck debugging (IEEE 2024) and is endorsed by multiple engineering workflows ([Code Foundry](https://codefoundry.nl/blogs/rubber-duck-llms), [IEEE](https://ieeexplore.ieee.org/document/10487209/)).
+
+**When Most Valuable**: Complex tasks, multi-stakeholder requirements, ambiguous specifications. Less useful for simple, unambiguous queries.
+
+---
+
+### 6.9 Preflight and Pre-Mortem Prompts
+
+**Definition**: Asking the model to identify potential problems, edge cases, or failure modes before executing a task.
+
+**Evidence**: AI systems produce "surprisingly good and comprehensive" pre-mortem critiques of plans (Psychology Today, citing Gary Klein, originator of the pre-mortem technique). However, they "miss the details and nuances of specific projects" — they cannot detect interpersonal dynamics or team-specific weaknesses ([Psychology Today](https://www.psychologytoday.com/us/blog/seeing-what-others-dont/202504/can-ai-do-pre-mortems-for-us)).
+
+**Practical Patterns**:
+```
+"Before implementing this, what could go wrong?"
+
+"What edge cases should we consider for this function?"
+
+"Assume this plan will fail. What's the most likely reason?"
+
+"List 5 ways this could break, then address each one
+in your implementation."
+```
+
+**For Code**: "Provide test cases that might break this function" surfaces edge cases (empty arrays, null values, type mismatches, boundary conditions).
+
+**No formal benchmarks** comparing pre-mortem prompting to non-pre-mortem on output quality. Practitioner technique without academic validation, but the underlying principle is well-established in decision science.
+
+---
+
+### 6.10 Iterative Narrowing
+
+**Definition**: Starting broad and progressively constraining — generating multiple options, then selecting and refining the best.
+
+**Formal Basis**: This is the practitioner version of both Self-Consistency (Wang et al.) and Automatic Prompt Engineer (Zhou et al.). The core mechanism — generate diverse candidates, evaluate, select — is well-validated.
+
+**Practical Patterns**:
+```
+"Give me 5 different approaches to this problem.
+Evaluate the pros and cons of each.
+Then elaborate on the best one."
+
+"Brainstorm 3 solutions, then pick the most practical
+one and implement it."
+
+"Draft 3 versions of this email, then combine the
+best elements into a final version."
+```
+
+**Evidence**: Understanding the Effects of Iterative Prompting on Truthfulness (arXiv 2024) found iterative approaches can improve truthfulness when properly structured but can compound errors if early iterations introduce mistakes ([arXiv 2402.06625](https://arxiv.org/pdf/2402.06625)).
+
+**Sources**: [Cameron Wolfe](https://cameronrwolfe.substack.com/p/automatic-prompt-optimization), [Lilian Weng](https://lilianweng.github.io/posts/2023-03-15-prompt-engineering/)
+
+---
+
+### 6.11 Structured Output as a Thinking Aid
+
+**Definition**: Requesting structured formats (tables, matrices, comparisons) not just for output formatting but as a mechanism to force more rigorous thinking.
+
+**Key Research**: "Better Think with Tables" (2024) found that presenting data in tabular format produced a **40.29% relative performance gain** (5.34pp absolute) across LLM data-analytics tasks, tested across 8 models. Tables were also more token-efficient than prose ([arXiv 2412.17189](https://arxiv.org/html/2412.17189v2)).
+
+**Why It Works**: LLMs "not only benefit from injecting structuredness, but also from being nudged to construct tabular structures internally in their thought process." Tables force systematic evaluation rather than narrative bias.
+
+**Critical Caveat**: Forcing simultaneous reasoning AND strict format compliance can degrade performance. The recommended approach is **decoupled reasoning**: think first in natural language, then format the output ([Google Cloud](https://medium.com/google-cloud/the-conflict-between-llm-reasoning-and-structured-output-fluid-thinking-vs-rigid-rules-e64fb0509d40)).
+
+**Practical Patterns**:
+```
+"Compare these options in a table with columns for
+[criteria 1], [criteria 2], [criteria 3]."
+
+"Create a decision matrix for these alternatives."
+
+"First reason through the problem, then present your
+analysis in a structured table."
+```
+
+**Sources**: [arXiv 2412.17189](https://arxiv.org/html/2412.17189v2), [Cognitive Prompting](https://arxiv.org/abs/2410.02953)
+
+---
+
+### 6.12 Context Window Management
+
+**Definition**: Strategies for managing information across long conversations and multiple sessions.
+
+**When to Start Fresh** (Anthropic): Context has "diminishing marginal returns" — every token influences behavior, not always positively. For coding agents, prefer starting fresh over compaction, because modern models effectively discover state from the filesystem ([Anthropic](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents)).
+
+**Practical Strategies**:
+1. **Hierarchical memory**: Last 5-10 messages verbatim (working memory), older exchanges compressed to summaries (episodic), persistent facts extracted separately (semantic).
+2. **Structured state files**: Use JSON for structured state, freeform text for progress notes. Persist outside the context window.
+3. **Git as state management**: Anthropic specifically recommends git for tracking state across sessions — log of what's done plus restorable checkpoints.
+4. **Session handoff pattern**: Before ending a long session, have the model write a summary/handoff document that can be loaded into the next session.
+
+**Simon Willison's Framing**: "Context engineering" over "prompt engineering" — the real skill is "carefully and skillfully constructing the right context," not just the prompt text but everything surrounding it: goals, constraints, examples, tools, memory, and retrieved knowledge ([Willison](https://simonwillison.net/tags/context-engineering/)).
+
+**Sources**: [Anthropic Engineering](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents), [JetBrains 2025](https://blog.jetbrains.com/research/2025/12/efficient-context-management/), [Willison](https://simonwillison.net/tags/context-engineering/)
+
+---
+
+### 6.13 Calibration Prompts
+
+**Definition**: Asking the model to rate its confidence or assess the quality of its own output.
+
+**The Core Problem**: LLMs are "systematically overconfident across models, domains, and elicitation strategies." A model saying "80% confidence" may be correct only 50% of the time ([arXiv 2510.26995](https://arxiv.org/html/2510.26995)).
+
+**Key Research** (Yang et al., ETH Zurich, Dec 2024): Verbalized confidence scores are often miscalibrated. The best calibration method achieved ~7% average deviation from empirical accuracy. When models simultaneously reason and verbalize confidence, the reasoning process disrupts confidence calibration ([arXiv 2412.14737](https://arxiv.org/pdf/2412.14737)).
+
+**Does It Improve Output?** Not directly. Asking "how confident are you?" does not cause the model to generate better answers. It provides a noisy signal about reliability that can be used for triage.
+
+**Practical Guidance**: Use confidence elicitation as a triage tool (flag low-confidence outputs for review) rather than a quality improvement mechanism. Don't trust raw confidence numbers without calibration.
+
+```
+Useful: "Rate your confidence 1-10. If below 7, explain
+what additional information would help."
+
+Not useful: "Be confident in your answer."
+(This just makes the model sound more confident, not be more accurate.)
+```
+
+---
+
+### 6.14 Emotional / Motivational Framing
+
+**Definition**: Adding emotional or motivational context to prompts ("This is very important," "Please," "Take your time").
+
+**The Original Claim** (EmotionPrompt, Li et al. 2023): Appending emotional stimuli ("This is very important to my career") reported 8% improvement on Instruction Induction, 115% on BIG-Bench ([arXiv 2307.11760](https://arxiv.org/abs/2307.11760)).
+
+**The Replication Failure** (TMLR, December 2025): A comprehensive replication found **no significant improvement** — just 1% overall (chi-squared = 0.11, p = 0.74). The maximal positive case (8.7% on Llama 3-8B) was also not statistically significant (p = 0.16) ([TMLR](https://openreview.net/pdf?id=bgjR5bM44u)).
+
+**Mollick et al. on Politeness** (March 2025): Testing "Please" vs "I order you" on GPT-4o found up to 60 percentage point swings per question in either direction, but effects cancelled out in aggregate — no net benefit.
+
+**What Actually Works Instead**: Providing **functional motivation** — explaining WHY an instruction exists. "Your response will be read aloud by a text-to-speech engine, so never use ellipses" works better than "NEVER use ellipses" or "Please don't use ellipses, it's very important." Context about purpose helps models generalize; emotional appeals do not.
+
+**Bottom Line**: Emotional framing does not reliably improve performance. Saying "please" is not harmful but has no robust evidence of helping. Provide functional context instead.
+
+**Sources**: [EmotionPrompt](https://arxiv.org/abs/2307.11760), [TMLR Replication](https://openreview.net/pdf?id=bgjR5bM44u), [Mollick 2025](https://gail.wharton.upenn.edu/research-and-insights/tech-report-prompt-engineering-is-complicated-and-contingent/)
+
+---
+
+## 7. Derived Practical Techniques
+
+*Lightweight versions of formal research techniques, adapted for everyday use. Each maps back to a rigorously studied method from Sections 1-4.*
+
+### 7.1 Lightweight Self-Consistency
+
+**Formal Basis**: Self-Consistency (Wang et al. 2022) — sample 40+ paths, majority vote. See Section 1.4.
+
+**Everyday Version**:
+```
+"Give me 3 different approaches to this problem.
+Evaluate each one, then select the best."
+```
+
+**How Much Benefit?** The single-prompt version captures the core principle (exploring multiple reasoning paths) without the cost of multiple API calls. For open-ended tasks where majority voting doesn't apply, use Universal Self-Consistency (USC): generate multiple outputs, then ask the LLM to determine which is most consistent ([PromptHub](https://www.prompthub.us/blog/self-consistency-and-universal-self-consistency-prompting)).
+
+**Important Caveat**: The Prompt Report (survey of 1,500+ papers) found that self-consistency actually underperformed expectations relative to its research popularity. Few-shot CoT alone was more consistently effective.
+
+---
+
+### 7.2 Informal Tree of Thoughts
+
+**Formal Basis**: Tree of Thoughts (Yao et al. 2023) — BFS/DFS exploration with evaluation. See Section 2.1.
+
+**Everyday Version** (from [dave1010's GitHub](https://github.com/dave1010/tree-of-thought-prompting)):
+```
+"Imagine three different experts are answering this question.
+All experts will write down 1 step of their thinking, then
+share it with the group. Then all experts will go on to the
+next step, etc. If any expert realizes they're wrong at any
+point then they leave."
+```
+
+**How Much Benefit?** This single-prompt version demonstrably improved GPT-3.5's reasoning to GPT-4 levels on certain problems. It captures multiple perspectives, iterative refinement, and self-correction (experts "leaving" when wrong). What it loses: true backtracking and systematic search.
+
+**When to Use**: Problems requiring creative or strategic thinking. For common NLP tasks, the overhead of even informal ToT is unnecessary.
+
+**Sources**: [dave1010/tree-of-thought-prompting](https://github.com/dave1010/tree-of-thought-prompting), [Yao et al.](https://arxiv.org/abs/2305.10601)
+
+---
+
+### 7.3 Everyday RAG Patterns
+
+**Formal Basis**: Retrieval-Augmented Generation (Lewis et al. 2020). See Section 2.3.
+
+**When You Manually Paste Context** (the most common everyday RAG):
+
+```
+<documents>
+<document index="1">
+<source>report.pdf</source>
+<content>[pasted content]</content>
+</document>
+</documents>
+
+Based ONLY on the documents above, answer the following question.
+If the answer is not in the documents, say "Not found in provided documents."
+
+For each claim, cite the specific document and quote the exact
+passage that supports it.
+
+Question: [your question]
+```
+
+**The Quote-Then-Answer Pattern** (Anthropic's recommended approach):
+```
+"Find quotes from the document that are relevant to this question.
+Place them in <quotes> tags. Then, based on these quotes, provide
+your answer in <answer> tags."
+```
+
+**Why This Works**: It breaks reading, selection, summarization, and citation into separate reasoning steps rather than asking the model to do everything at once.
+
+**Key Rules**: Documents at top, query at bottom. Limit to the most relevant content — don't fill the context window. Demand citations to make hallucination detectable.
+
+---
+
+### 7.4 Lightweight Constitutional Prompting
+
+**Formal Basis**: Constitutional AI (Bai et al. 2022). See Section 2.4.
+
+**Everyday Version**: Simple principle-setting in prompts:
+```
+"Prioritize accuracy over completeness."
+"When in doubt, say you don't know rather than guess."
+"If you're uncertain, say so and explain why."
+"Cite sources for factual claims."
+```
+
+**Evidence**: Mollick's research (March 2025) found that **formatting constraints showed the most consistent, reliable improvements** across conditions. Behavioral constraints are more variable — sometimes they help, sometimes they hurt.
+
+**What Makes Principles Effective**:
+- **Specific and actionable** rather than vague: "cite your sources" beats "be accurate."
+- **Prioritized** when they might conflict: "if accuracy and completeness conflict, choose accuracy."
+- **Grounded in your actual failure modes**: observe what goes wrong, then add a principle to prevent it.
+
+**Anthropic's Recommendation**: "Start with a minimal prompt, then add instructions based on failure modes discovered during testing."
+
+---
+
+### 7.5 Informal Decomposition
+
+**Formal Basis**: Least-to-Most Prompting (Zhou et al. 2022), Plan-and-Solve (Wang et al. 2023). See Section 2.5.
+
+**Everyday Version**:
+```
+"Break this problem into sub-problems. Solve each one in order,
+using the answer from each sub-problem to inform the next."
+```
+
+**The Gap**: Formal Least-to-Most explicitly feeds each sub-problem's output into the next. Informal "break this into steps" gets decomposition but may miss sequential dependency chaining. The prompt above bridges this gap.
+
+**Key Finding**: DROP dataset: Least-to-Most achieved 82.45% vs CoT's 58.78%. The benefit is real but decreases as models become more capable and incorporate built-in reasoning.
+
+**Sweet Spot**: 3-7 natural subtasks. Too-coarse plans yield no benefit; too-fine plans waste tokens.
+
+---
+
+### 7.6 CoT for Non-Reasoning Tasks
+
+**Formal Basis**: Chain-of-Thought (Wei et al. 2022). See Section 1.3.
+
+**For Writing, Planning, Design**: CoT's value for non-math tasks is highly variable. Mollick et al. (June 2025) found effects are model-specific and question-specific. CoT can introduce variability that causes errors on questions the model would otherwise get right.
+
+**Anthropic's Guidance**: "A prompt like 'think thoroughly' often produces better reasoning than a hand-written step-by-step plan. Claude's reasoning frequently exceeds what a human would prescribe."
+
+**Practical Rule**: For reasoning models (o3, o4, Gemini 2.5, Claude with extended thinking), built-in reasoning makes explicit CoT largely redundant. For non-reasoning models, CoT still helps on difficult multi-step problems but may hurt on simple ones.
+
+**Sources**: [Mollick 2025](https://arxiv.org/abs/2506.07142), [Anthropic](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/claude-4-best-practices)
+
+---
+
+### 7.7 Prompt Templates and Reusable Patterns
+
+**Formal Basis**: The Prompt Report (survey of 1,500+ papers), DSPy/MIPRO. See Section 2.6.
+
+**MIT Sloan's Position** (2025): "Prompt engineering is so 2024. Try these prompt templates instead." Compiling reusable prompts with proven results is superior to one-off engineering ([MIT Sloan](https://mitsloan.mit.edu/ideas-made-to-matter/prompt-engineering-so-2024-try-these-prompt-templates-instead)).
+
+**Templates Practitioners Actually Reuse**:
+1. **Role + Task + Format + Constraints**: The basic reusable structure.
+2. **Few-shot example sandwich**: `<examples>` block with 3-5 diverse examples wrapping the input.
+3. **Quote-then-answer**: For document analysis (Section 7.3).
+4. **Self-correction chain**: Generate → Review → Refine (Section 6.2).
+5. **Contrast pair template**: Good example + bad example + task (Section 6.4).
+
+**Key Research Finding**: A DSPy optimization tool generated a prompt in 10 minutes that outperformed 20 hours of manual engineering, suggesting that template-based starting points plus automated refinement may be the optimal workflow ([The Prompt Report](https://arxiv.org/abs/2406.06608)).
+
+**Practical Advice**: Build a personal library of prompts that work. Version them. Test them against new models when you upgrade. Small tweaks in example formatting can improve accuracy by up to 90%.
+
+---
+
+## 8. Meta-Findings
+
+*Cross-cutting insights that emerged from researching practical techniques and deserve to be called out explicitly.*
+
+### "Prompt Engineering Is Complicated and Contingent"
+
+Mollick et al.'s definitive finding (March 2025): Testing each question 100 times on GPQA Diamond revealed that prompt variations produce inconsistent effects. Politeness differed by up to 60pp on specific items but balanced out in aggregate. **The most reliable technique across all conditions was structured formatting instructions.** No single technique is universally effective; everything depends on task, model, and evaluation criteria ([Wharton GAIL](https://gail.wharton.upenn.edu/research-and-insights/tech-report-prompt-engineering-is-complicated-and-contingent/), [arXiv 2503.04818](https://arxiv.org/abs/2503.04818)).
+
+### Context Engineering > Prompt Engineering
+
+Simon Willison advocates replacing "prompt engineering" with "context engineering" — the art of filling the context window with the right information. For factual tasks, "the most important thing you can give the model is relevant information, not a fancy persona." The right context beats the right technique ([Willison 2025](https://simonwillison.net/2025/jun/27/context-engineering/)).
+
+### The Few-Shot CoT Baseline
+
+The Prompt Report (survey of 1,500+ papers) found that **few-shot chain-of-thought was the single most consistently effective technique** across diverse tasks, outperforming more complex approaches like self-consistency in aggregate. This should be the default starting point before reaching for advanced techniques ([Prompt Report](https://arxiv.org/abs/2406.06608)).
+
+### Start Minimal, Add Based on Failures
+
+Anthropic's consistent guidance: "Think of Claude as a brilliant but new employee who lacks context." Start with a minimal prompt. Test it. Observe failure modes. Add instructions to prevent those specific failures. This iterative approach outperforms trying to anticipate every edge case upfront.
+
+### The Replication Crisis in Prompt Engineering
+
+EmotionPrompt (2023) claimed 8-115% improvements. The TMLR replication (Dec 2025) found 1% (not significant). This pattern — dramatic initial claims followed by failed replication — is emerging as a concern in prompt engineering research. Weight replicated findings and large-N studies over single papers.
+
+---
+
+**The prompting plateau**: When prompt-level improvements stall, consider: structured outputs, fine-tuning, multi-turn strategies, DSPy optimization, or architectural changes.
+
+---
+
+## 9. Master Source Index
 
 ### Research Papers
 
@@ -876,6 +1409,36 @@ ask the user before proceeding.
 | Pinecone: Chunking Strategies | [pinecone.io](https://www.pinecone.io/learn/chunking-strategies/) |
 | Cleanlab: Structured Output Benchmarks | [cleanlab.ai](https://cleanlab.ai/blog/structured-output-benchmark/) |
 | Promptfoo | [promptfoo.dev](https://www.promptfoo.dev/) |
+
+### Section 6-8 Additional Sources
+
+| Paper | Authors/Source | Year | URL |
+|-------|---------------|------|-----|
+| Prompt Repetition Improves Non-Reasoning LLMs | Google Research | 2024 | [arxiv.org/html/2512.14982v1](https://arxiv.org/html/2512.14982v1) |
+| Self-Refine: Iterative Refinement | Madaan et al. | 2023 | [selfrefine.info](https://selfrefine.info/) |
+| Metacognitive Prompting | Wang & Zhao | NAACL 2024 | [aclanthology.org/2024.naacl-long.106](https://aclanthology.org/2024.naacl-long.106.pdf) |
+| Contrastive Prompting | Liang et al. | 2024 | [arxiv.org/html/2403.08211v2](https://arxiv.org/html/2403.08211v2) |
+| Learning from Negative Examples | (anonymous) | 2024 | [arxiv.org/html/2402.11651v1](https://arxiv.org/html/2402.11651v1) |
+| EmotionPrompt | Li et al. | 2023 | [arxiv.org/abs/2307.11760](https://arxiv.org/abs/2307.11760) |
+| EmotionPrompt Replication Failure | (anonymous) | TMLR 2025 | [openreview.net](https://openreview.net/pdf?id=bgjR5bM44u) |
+| Better Think with Tables | (anonymous) | 2024 | [arxiv.org/html/2412.17189v2](https://arxiv.org/html/2412.17189v2) |
+| Prompt-Based Length Control | (anonymous) | 2025 | [arxiv.org/html/2508.13805v1](https://arxiv.org/html/2508.13805v1) |
+| Iterative Prompting and Truthfulness | (anonymous) | 2024 | [arxiv.org/pdf/2402.06625](https://arxiv.org/pdf/2402.06625) |
+| PE Is Complicated and Contingent | Mollick et al. | Wharton 2025 | [arXiv 2503.04818](https://arxiv.org/abs/2503.04818) |
+| The Prompt Report | Schulhoff et al. | 2024 | [arxiv.org/abs/2406.06608](https://arxiv.org/abs/2406.06608) |
+| On Verbalized Confidence Scores | Yang et al. (ETH) | 2024 | [arxiv.org/pdf/2412.14737](https://arxiv.org/pdf/2412.14737) |
+| Cognitive Prompting | (anonymous) | 2024 | [arxiv.org/abs/2410.02953](https://arxiv.org/abs/2410.02953) |
+
+| Source | URL |
+|--------|-----|
+| Simon Willison: Context Engineering | [simonwillison.net](https://simonwillison.net/2025/jun/27/context-engineering/) |
+| Anthropic: Context Engineering for Agents | [anthropic.com](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) |
+| MIT Sloan: Prompt Templates | [mitsloan.mit.edu](https://mitsloan.mit.edu/ideas-made-to-matter/prompt-engineering-so-2024-try-these-prompt-templates-instead) |
+| Ethan Mollick: Two Paths to Prompting | [oneusefulthing.org](https://www.oneusefulthing.org/p/working-with-ai-two-paths-to-prompting) |
+| dave1010: Tree of Thought Prompting | [github.com](https://github.com/dave1010/tree-of-thought-prompting) |
+| Negative Prompting Analysis | [gadlet.com](https://gadlet.com/posts/negative-prompting/) |
+| Code Foundry: Rubber Duck LLMs | [codefoundry.nl](https://codefoundry.nl/blogs/rubber-duck-llms) |
+| Pre-Mortems with AI | [psychologytoday.com](https://www.psychologytoday.com/us/blog/seeing-what-others-dont/202504/can-ai-do-pre-mortems-for-us) |
 
 ---
 
