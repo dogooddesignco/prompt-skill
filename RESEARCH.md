@@ -9,7 +9,12 @@
 
 ## Table of Contents
 
-- [Quick-Start Decision Framework](#quick-start-decision-framework)
+- [Technique Selection Matrix](#technique-selection-matrix)
+  - [Task Type Classification](#task-type-classification)
+  - [Technique-Task Matrix](#technique-task-matrix)
+  - [Anti-Recommendations](#anti-recommendations-what-to-avoid-per-task-type)
+  - [Technique Composition Rules](#technique-composition-rules)
+  - [Quick Lookup](#quick-lookup-i-need-to)
 - [1. Foundational Techniques](#1-foundational-techniques)
   - [1.1 Zero-Shot Prompting](#11-zero-shot-prompting)
   - [1.2 Few-Shot Prompting](#12-few-shot-prompting)
@@ -29,7 +34,7 @@
   - [3.1 Prompt Injection Defense](#31-prompt-injection-defense)
   - [3.2 Hallucination Reduction](#32-hallucination-reduction)
   - [3.3 Output Format Control](#33-output-format-control)
-  - [3.4 Bias Mitigation](#34-bias-mitigation)
+  - [3.4 Bias Mitigation — A Warning](#34-bias-mitigation--a-warning)
   - [3.5 Constraint Specification](#35-constraint-specification)
   - [3.6 Evaluation and Testing](#36-evaluation-and-testing)
   - [3.7 Failure Modes and Antipatterns](#37-failure-modes-and-antipatterns)
