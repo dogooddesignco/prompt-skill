@@ -73,35 +73,123 @@
 
 ---
 
-## Quick-Start Decision Framework
+## Technique Selection Matrix
 
-**Choosing a technique — start here:**
+*Designed for LLM self-selection: given a task, identify the best techniques to apply. Ratings: **S** = strong fit (use by default), **A** = good fit (use when needed), **B** = situational (helps sometimes), **—** = not applicable, **X** = avoid (hurts performance).*
+
+### Task Type Classification
+
+To use this matrix, first classify the incoming task. A task may match multiple types — apply techniques from all matching types.
+
+| Task Type | Signal Words / Patterns | Example Tasks |
+|-----------|------------------------|---------------|
+| **Factual QA** | "what is," "who," "when," "explain," "define," "how does X work" | Answering knowledge questions, explaining concepts, looking up facts |
+| **Reasoning / Math** | "calculate," "solve," "prove," "what is the result," numbers, equations, logic puzzles | Math problems, logical deductions, puzzles, formal proofs |
+| **Code Generation** | "write a function," "implement," "create a script," "fix this bug," "refactor," code blocks in input | Writing code, debugging, code review, test generation |
+| **Creative Writing** | "write a story," "draft an email," "compose," "rewrite in the style of," tone/voice requests | Stories, marketing copy, emails, speeches, rewrites |
+| **Data Extraction** | "extract," "parse," "find all X in," "convert to JSON/CSV," structured data in input | NER, document parsing, format conversion, classification |
+| **Analysis / Comparison** | "compare," "evaluate," "pros and cons," "which is better," "analyze," "assess" | Product comparisons, code reviews, decision support, trade-off analysis |
+| **Planning / Strategy** | "plan," "design," "architect," "how should we approach," "what steps," "strategy for" | Project plans, system design, implementation strategies, roadmaps |
+| **Summarization** | "summarize," "TL;DR," "key points," "condense," "brief overview" | Document summaries, meeting notes, article digests |
+| **Document Comprehension** | Long document/text provided + question about it, "based on the above," "according to" | Q&A over docs, contract review, research synthesis |
+| **Instruction Following** | Specific format requirements, multi-constraint tasks, "follow these rules exactly" | Form filling, template completion, rule-bound generation |
+| **High-Stakes / Critical** | Medical, legal, financial, safety-critical, "must be accurate," "this will be published" | Medical advice, legal analysis, financial reports, production code |
+| **Ambiguous / Underspecified** | Vague requests, missing context, multiple valid interpretations, open-ended | "Make this better," "help me with this," unclear requirements |
+
+### Technique-Task Matrix
+
+| Technique | Factual QA | Reasoning / Math | Code Gen | Creative Writing | Data Extraction | Analysis / Comparison | Planning / Strategy | Summarization | Document Comprehension | Instruction Following | High-Stakes | Ambiguous |
+|-----------|-----------|-----------------|----------|-----------------|----------------|----------------------|--------------------|--------------|-----------------------|----------------------|-------------|-----------|
+| **Foundational** | | | | | | | | | | | | |
+| Zero-shot | S | B | B | A | B | A | A | S | B | B | — | — |
+| Few-shot (3-5 examples) | A | A | S | A | S | A | B | A | B | S | A | B |
+| Chain-of-Thought | B | S† | A | — | — | A | A | — | B | — | A | B |
+| **Practical Everyday** | | | | | | | | | | | | |
+| Multi-pass / Read twice | B | A | A | B | A | A | A | A | S | S | S | S |
+| Contrast pairs (good+bad) | A | A | S | S | S | A | B | B | — | S | A | A |
+| Metacognitive prompts | A | A | B | B | — | S | S | — | A | — | S | S |
+| Internal review | B | A | A | S | B | A | A | A | B | A | S | B |
+| Self-grounding / Priming | S | B | B | B | — | A | A | — | A | — | A | A |
+| Instruction bookending | — | — | B | — | B | — | — | — | S | S | S | B |
+| Output length control | B | — | — | A | — | B | B | S | B | S | B | — |
+| Rubber duck / Restatement | — | B | A | — | B | B | A | — | A | A | A | S |
+| Pre-mortem / Preflight | — | B | S | — | — | B | S | — | — | B | S | A |
+| Iterative narrowing | B | B | A | A | — | S | S | B | — | — | A | S |
+| Structured output (tables) | B | B | B | — | A | S | A | B | B | A | A | A |
+| **Derived from Research** | | | | | | | | | | | | |
+| Lightweight self-consistency | A | S | A | B | B | A | A | — | — | — | S | B |
+| Informal ToT (3 experts) | B | A | A | B | — | S | S | — | — | — | A | A |
+| Everyday RAG (quote-answer) | — | — | — | — | — | — | — | A | S | — | A | — |
+| Lightweight constitutional | B | — | A | B | — | B | B | — | — | A | S | B |
+| Informal decomposition | — | S | S | — | B | A | S | — | B | B | A | A |
+| Prompt chaining | B | A | A | A | A | A | A | A | A | A | S | B |
+| Self-critique (multi-turn) | A | A | A | S | B | A | A | A | B | A | S | B |
+
+*† CoT for reasoning: strong for non-reasoning models, avoid for reasoning models (o3, o4, Gemini 2.5) which reason internally.*
+
+### Anti-Recommendations (What to Avoid Per Task Type)
+
+| Task Type | Avoid | Why |
+|-----------|-------|-----|
+| Factual QA | Personas/roles, emotional framing | Personas reduce factual accuracy by -3.6pts (PRISM 2026). Emotional framing has no effect (TMLR 2025). |
+| Reasoning / Math | CoT on reasoning models, calibration prompts | CoT adds only +2-3% on o3/o4 at 20-80% time cost. Calibration doesn't improve answers. |
+| Code Generation | Monolithic prompts, vague specs | Requesting large outputs at once produces "jumbled messes." Vague "handle errors gracefully" → inconsistent. |
+| Creative Writing | Negative constraints alone, no style spec | "Don't use clichés" is less effective than providing positive style attributes. Without guidance, LLMs converge on generic AI voice. |
+| Data Extraction | JSON/XML format for code tasks, one-size format | JSON/XML cause 10-26% accuracy degradation for code gen. Test formats per model — no universal winner. |
+| Analysis / Comparison | Single-pass for complex comparisons | Unstructured narrative responses skip balanced analysis. Force tabular structure for rigor. |
+| High-Stakes / Critical | Single-turn self-critique, trusting calibration, no evaluation | Single-turn review yields only 7.88%→8.36% error correction. LLMs are systematically overconfident. |
+| Ambiguous | Immediate execution, zero-shot | Ambiguous tasks need clarification first. Rubber duck/restatement before acting prevents misinterpretation. |
+
+### Technique Composition Rules
+
+Techniques that stack well together (apply in this order):
 
 ```
-Is the task simple and well-defined?
-├── YES → Zero-shot (Section 1.1)
-│   └── Not working? → Add "Let's think step by step" (Section 1.3)
-│       └── Still not working? → Add 3-5 examples (Section 1.2)
-└── NO → What kind of complexity?
-    ├── Multi-step reasoning/math
-    │   ├── Using a reasoning model (o3, o4, Gemini 2.5)? → Direct prompting, skip CoT
-    │   ├── Need arithmetic accuracy? → PAL/PoT — generate code (Section 4.2)
-    │   └── Need highest accuracy? → Lightweight self-consistency (Section 7.1)
-    ├── Needs external knowledge → RAG (Section 2.3) or everyday RAG (Section 7.3)
-    ├── Needs tool/API use → ReAct pattern (Section 2.2) + tool descriptions (Section 4.7)
-    ├── Multi-stage pipeline → Prompt chaining (Section 2.7)
-    ├── Search/planning problem → Informal ToT (Section 7.2)
-    ├── High-stakes output → Self-critique + verification (Section 2.4)
-    └── Production optimization → DSPy/MIPRO (Section 2.6)
+1. COMPREHEND FIRST
+   Rubber duck / Restatement (for ambiguous tasks)
+   OR Multi-pass / Read twice (for complex inputs)
+   OR Self-grounding (for knowledge-dependent tasks)
 
-For ALL prompts, also consider:
-• Multi-pass: have model comprehend before acting (Section 6.1)
-• Format: XML tags for Claude, test per model (Section 1.6)
-• Contrast pairs: show good + bad examples (Section 6.4)
-• Structure: data at top, query at bottom for long contexts (Section 4.6)
-• Safety: defense-in-depth if processing untrusted input (Section 3.1)
-• Evaluation: 20-50 test cases before deploying (Section 3.6)
+2. STRUCTURE THE APPROACH
+   Informal decomposition (for multi-step tasks)
+   OR Pre-mortem / Preflight (for high-stakes tasks)
+   OR Metacognitive prompts (for analysis/judgment tasks)
+
+3. EXECUTE WITH THE RIGHT TECHNIQUE
+   Few-shot with contrast pairs (for format-sensitive tasks)
+   OR Informal ToT / Lightweight self-consistency (for decision tasks)
+   OR Everyday RAG with quote-then-answer (for document tasks)
+   OR Direct prompting (for simple, clear tasks)
+
+4. VERIFY AND REFINE
+   Internal review (lightweight, single-turn)
+   OR Self-critique (heavy, multi-turn, for high-stakes)
+   OR Iterative narrowing (for creative/strategic tasks)
+
+5. CONTROL OUTPUT
+   Output length control (for length-sensitive delivery)
+   Instruction bookending (for long prompts with critical constraints)
+   Structured output / tables (for comparison and analysis)
 ```
+
+**Minimum viable prompt**: For most everyday tasks, Zero-shot + Multi-pass is sufficient. Add techniques only when the simpler approach fails. The most reliable single upgrade across all task types is **structured formatting** (Mollick 2025).
+
+### Quick Lookup: "I need to..."
+
+| I need to... | Start with | Add if needed |
+|--------------|-----------|---------------|
+| Answer a factual question | Zero-shot + self-grounding | Few-shot if format matters |
+| Solve a math problem | Direct prompt (reasoning model) OR CoT (non-reasoning) | PAL/PoT for arithmetic, self-consistency for verification |
+| Write code | Few-shot + contrast pairs + pre-mortem | Informal decomposition for complex features, test-driven prompting |
+| Write creative content | Style spec + contrast pairs | Internal review, iterative narrowing for refinement |
+| Extract data from text | Few-shot + output schema + enums | Structured outputs API if available |
+| Compare options | Structured output (table) + metacognitive | Informal ToT for strategic decisions |
+| Plan an approach | Metacognitive + informal decomposition | Pre-mortem for risk, informal ToT for alternatives |
+| Summarize a document | Zero-shot + output length control | Everyday RAG (quote-then-answer) for accuracy |
+| Answer questions about a document | Everyday RAG (quote-then-answer) + bookending | Multi-pass for complex documents |
+| Follow complex instructions | Multi-pass + bookending + few-shot | Rubber duck to verify understanding |
+| Produce high-stakes output | Multi-pass + pre-mortem + self-critique (multi-turn) | Lightweight constitutional, prompt chaining |
+| Handle a vague request | Rubber duck first, then metacognitive | Iterative narrowing to refine scope |
 
 ---
 
